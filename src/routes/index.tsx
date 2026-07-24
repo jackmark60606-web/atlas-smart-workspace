@@ -142,9 +142,7 @@ function AtlasDashboard() {
       const t = text.trim();
       if (!t) return;
       setMessages((m) => [...m, { id: `u${Date.now()}`, role: "user", text: t }]);
-      const currentMode = mode;
-      pushAssistant(generateReply(t, currentMode), 800);
-      if (currentMode !== "default") setMode("default");
+      pushAssistant(generateReply(t, mode), 800);
     },
     [mode, pushAssistant, generateReply],
   );
