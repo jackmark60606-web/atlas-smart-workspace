@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   Shield,
   ShieldCheck,
@@ -20,6 +20,8 @@ import {
   Bot,
   Paperclip,
   Zap,
+  AlertTriangle,
+  Loader2,
 } from "lucide-react";
 
 export const Route = createFileRoute("/")({
@@ -28,6 +30,7 @@ export const Route = createFileRoute("/")({
 
 type Doc = { id: string; name: string; size: string; tag: string; date: string };
 type Message = { id: string; role: "user" | "assistant"; text: string };
+type Mode = "default" | "contract" | "response" | "onboarding";
 
 const INITIAL_DOCS: Doc[] = [
   { id: "1", name: "عقد-توريد-الخدمات-2025.pdf", size: "1.4 MB", tag: "عقود", date: "منذ ساعتين" },
@@ -44,7 +47,86 @@ const QUICK_PROMPTS = [
   "قارن أرقام مبيعات الربع",
 ];
 
+/* ---------------- Shared state via context-free simple store ---------------- */
+type AtlasStore = {
+  docs: Doc[];
+  setDocs: React.Dispatch<React.SetStateAction<Doc[]>>;
+  messages: Message[];
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
+  mode: Mode;
+  setMode: (m: Mode) => void;
+  pushAssistant: (text: string, delay?: number) => void;
+  sendUser: (text: string) => void;
+};
+
+const StoreCtx = { current: null as AtlasStore | null };
+
 function AtlasDashboard() {
+  const [docs, setDocs] = useState<Doc[]>(INITIAL_DOCS);
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: "w",
+      role: "assistant",
+      text: "مرحباً سارة 👋 أنا أطلس، مساعدك الذكي. يمكنني تلخيص المستندات، صياغة الردود، ومقارنة الأرقام. جرّبي أحد الاقتراحات بالأسفل أو اكتبي طلبك.",
+    },
+  ]);
+  const [mode, setMode] = useState<Mode>("default");
+  const [typing, setTyping] = useState(false);
+
+  const pushAssistant = useCallback((text: string, delay = 700) => {
+    setTyping(true);
+    window.setTimeout(() => {
+      setMessages((m) => [
+        ...m,
+        { id: `a${Date.now()}${Math.random()}`, role: "assistant", text },
+      ]);
+      setTyping(false);
+    }, delay);
+  }, []);
+
+  const generateReply = useCallback(
+    (userText: string, currentMode: Mode): string => {
+      const t = userText.toLowerCase();
+      if (currentMode === "onboarding") {
+        if (t.includes("إجاز") || t.includes("اجاز"))
+          return "📚 **سياسة الإجازات:**\n\n• 21 يوم إجازة سنوية مدفوعة الأجر.\n• 10 أيام إجازة مرضية.\n• تُقدَّم عبر بوابة الموارد البشرية قبل 5 أيام على الأقل.\n\nهل تودّ سؤالاً آخر عن ساعات العمل أو التأمين؟";
+        if (t.includes("راتب") || t.includes("رواتب"))
+          return "💰 **دورة الرواتب:** تُصرف الرواتب في اليوم 27 من كل شهر ميلادي عبر التحويل البنكي. البدلات تُضاف في اليوم الأول من الشهر التالي.";
+        return "أهلاً بك في برنامج التأهيل التفاعلي 🎓\n\nيمكنك سؤالي عن:\n• سياسة الإجازات\n• دورة الرواتب والبدلات\n• قواعد السلوك المهني\n• أدوات الشركة الداخلية";
+      }
+      if (currentMode === "response") {
+        return `✉️ **مسودة رد احترافي:**\n\nعزيزي العميل،\n\nنشكركم على تواصلكم معنا بخصوص "${userText}". لقد استلمنا ملاحظتكم بكل اهتمام، ونعتذر عن أي إزعاج قد سببناه.\n\nفريقنا المختص يعمل حالياً على مراجعة الحالة، وسنوافيكم برد تفصيلي خلال 24 ساعة عمل كحدٍّ أقصى.\n\nنقدّر ثقتكم بنا،\nفريق خدمة العملاء`;
+      }
+      if (currentMode === "contract") {
+        return "📄 **تحليل إضافي للعقد:**\n\nبناءً على سؤالك، هذه أبرز النقاط:\n• شرط التجديد التلقائي مفعّل لمدة سنة إضافية.\n• جهة التحكيم: غرفة التجارة بالرياض.\n• لا يوجد بند سرية موسّع — يُنصح بإضافته.";
+      }
+      if (t.includes("لخّص") || t.includes("لخص") || t.includes("عقد"))
+        return "📌 **ملخّص العقد:**\n• التزام تسليم شهري خلال 30 يوماً.\n• غرامة تأخير 0.5% من قيمة العقد لكل أسبوع.\n• التجديد التلقائي ما لم يُخطر أحد الطرفين قبل 60 يوماً.\n\n💡 توصية أطلس: فعّل تذكيراً قبل 5 أيام من كل استحقاق.";
+      if (t.includes("خصوصية") || t.includes("سياسة"))
+        return "🔐 **أهم بنود سياسة الخصوصية:**\n• لا تُشارك بيانات العملاء مع طرف ثالث دون موافقة كتابية.\n• الاحتفاظ بالسجلات لمدة 7 سنوات.\n• حق العميل في طلب حذف بياناته خلال 30 يوماً.";
+      if (t.includes("مبيعات") || t.includes("ربع"))
+        return "📊 **مقارنة المبيعات:**\n• Q2: 1.8M ريال\n• Q3: 2.4M ريال (+33%)\n\nالنمو مدفوع بقطاع الخدمات المؤسسية (+41%).";
+      if (t.includes("اعتذار"))
+        return "✉️ **رد اعتذار مقترح:**\n\nعزيزي العميل، نعتذر بصدق عن التجربة التي مررت بها. نُقدّر ملاحظتك ونعمل حالياً على معالجة الأمر مع الفريق المسؤول. سنوافيك بتحديث خلال 24 ساعة.\n\nمع خالص التقدير،\nفريق أطلس";
+      return `تمّ استلام طلبك: "${userText}"\n\nبناءً على مستنداتك المرفوعة، أطلس يعمل على تحليل السياق. جرّبي طرح سؤال أكثر تحديداً حول العقود، السياسات، أو المبيعات للحصول على إجابة دقيقة.`;
+    },
+    [],
+  );
+
+  const sendUser = useCallback(
+    (text: string) => {
+      const t = text.trim();
+      if (!t) return;
+      setMessages((m) => [...m, { id: `u${Date.now()}`, role: "user", text: t }]);
+      const currentMode = mode;
+      pushAssistant(generateReply(t, currentMode), 800);
+      if (currentMode !== "default") setMode("default");
+    },
+    [mode, pushAssistant, generateReply],
+  );
+
+  StoreCtx.current = { docs, setDocs, messages, setMessages, mode, setMode, pushAssistant, sendUser };
+
   return (
     <div className="min-h-screen">
       <Header />
@@ -52,13 +134,19 @@ function AtlasDashboard() {
         <PageIntro />
         <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-12">
           <div className="lg:col-span-4">
-            <KnowledgeBase />
+            <KnowledgeBase docs={docs} setDocs={setDocs} />
           </div>
           <div className="lg:col-span-8">
             <ActionCenter />
           </div>
           <div className="lg:col-span-12">
-            <SmartChat />
+            <SmartChat
+              messages={messages}
+              typing={typing}
+              mode={mode}
+              setMode={setMode}
+              sendUser={sendUser}
+            />
           </div>
         </div>
         <TrustBadge />
@@ -147,113 +235,219 @@ function PageIntro() {
 }
 
 /* ---------------- Section 1: Knowledge Base ---------------- */
-function KnowledgeBase() {
-  const [docs, setDocs] = useState<Doc[]>(INITIAL_DOCS);
+function KnowledgeBase({
+  docs,
+  setDocs,
+}: {
+  docs: Doc[];
+  setDocs: React.Dispatch<React.SetStateAction<Doc[]>>;
+}) {
   const [activeTag, setActiveTag] = useState<string>("عقود");
   const [dragOver, setDragOver] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const addFiles = useCallback((files: FileList | File[]) => {
-    const arr = Array.from(files).map((f, i) => ({
-      id: `${Date.now()}-${i}`,
-      name: f.name,
-      size: `${(f.size / 1024 / 1024).toFixed(1)} MB`,
-      tag: activeTag,
-      date: "الآن",
-    }));
-    setDocs((d) => [...arr, ...d]);
-  }, [activeTag]);
+  const relDate = () => "الآن";
+
+  const addFiles = useCallback(
+    (files: FileList | File[]) => {
+      const list = Array.from(files);
+      if (!list.length) return;
+      setUploading(true);
+      window.setTimeout(() => {
+        const arr = list.map((f, i) => ({
+          id: `${Date.now()}-${i}`,
+          name: f.name || `مستند-${i + 1}.pdf`,
+          size:
+            f.size > 0
+              ? `${(f.size / 1024 / 1024).toFixed(1)} MB`
+              : `${(Math.random() * 3 + 0.3).toFixed(1)} MB`,
+          tag: activeTag,
+          date: relDate(),
+        }));
+        setDocs((d) => [...arr, ...d]);
+        setUploading(false);
+        StoreCtx.current?.pushAssistant(
+          `✅ تم رفع ${arr.length} مستند إلى قاعدة المعرفة ضمن تصنيف "${activeTag}". أطلس بدأ فهرستها وسأكون جاهزاً للإجابة عن أسئلتك حولها خلال لحظات.`,
+          500,
+        );
+      }, 900);
+    },
+    [activeTag, setDocs],
+  );
 
   return (
-    <Card>
-      <CardHeader
-        icon={<FileText className="h-5 w-5" />}
-        title="قاعدة المعرفة"
-        subtitle="ارفع مستنداتك ليتعلّم منها أطلس"
-      />
-
-      <div className="mb-4 flex flex-wrap gap-2">
-        {TAGS.map((t) => (
-          <button
-            key={t}
-            onClick={() => setActiveTag(t)}
-            className="rounded-full border px-3 py-1 text-xs font-medium transition"
-            style={
-              activeTag === t
-                ? {
-                    background: "var(--primary)",
-                    color: "var(--primary-foreground)",
-                    borderColor: "var(--primary)",
-                  }
-                : { color: "var(--muted-foreground)" }
-            }
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-
-      <div
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragOver(false);
-          if (e.dataTransfer.files) addFiles(e.dataTransfer.files);
-        }}
-        onClick={() => inputRef.current?.click()}
-        className="group flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-8 text-center transition"
-        style={{
-          borderColor: dragOver ? "var(--primary)" : "var(--border)",
-          background: dragOver ? "color-mix(in oklab, var(--primary) 6%, var(--background))" : "var(--muted)",
-        }}
-      >
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          accept=".pdf,.docx"
-          className="hidden"
-          onChange={(e) => e.target.files && addFiles(e.target.files)}
+    <>
+      <Card>
+        <CardHeader
+          icon={<FileText className="h-5 w-5" />}
+          title="قاعدة المعرفة"
+          subtitle="ارفع مستنداتك ليتعلّم منها أطلس"
         />
-        <div
-          className="mb-3 flex h-12 w-12 items-center justify-center rounded-full transition group-hover:scale-110"
-          style={{ background: "var(--gradient-primary)", color: "white", boxShadow: "var(--shadow-glow)" }}
-        >
-          <Upload className="h-5 w-5" />
-        </div>
-        <div className="text-sm font-semibold text-foreground">اسحب الملفات هنا أو انقر للرفع</div>
-        <div className="mt-1 text-xs text-muted-foreground">PDF, DOCX · حتى 25 ميجابايت</div>
-      </div>
 
-      <div className="mt-5">
-        <div className="mb-2 flex items-center justify-between">
-          <div className="text-xs font-semibold text-foreground">
-            المستندات المرفوعة <span className="text-muted-foreground">({docs.length})</span>
-          </div>
-        </div>
-        <div className="max-h-64 space-y-2 overflow-y-auto pe-1">
-          {docs.map((doc) => (
-            <DocRow key={doc.id} doc={doc} onDelete={() => setDocs((d) => d.filter((x) => x.id !== doc.id))} />
+        <div className="mb-4 flex flex-wrap gap-2">
+          {TAGS.map((t) => (
+            <button
+              key={t}
+              onClick={() => setActiveTag(t)}
+              className="rounded-full border px-3 py-1 text-xs font-medium transition"
+              style={
+                activeTag === t
+                  ? {
+                      background: "var(--primary)",
+                      color: "var(--primary-foreground)",
+                      borderColor: "var(--primary)",
+                    }
+                  : { color: "var(--muted-foreground)" }
+              }
+            >
+              {t}
+            </button>
           ))}
         </div>
-      </div>
 
-      <button
-        onClick={() => {
-          if (confirm("هل أنت متأكد من حذف كل البيانات؟ لا يمكن التراجع.")) setDocs([]);
-        }}
-        className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition hover:brightness-105"
-        style={{
-          borderColor: "color-mix(in oklab, var(--destructive) 30%, transparent)",
-          color: "var(--destructive)",
-          background: "color-mix(in oklab, var(--destructive) 6%, var(--background))",
-        }}
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOver(false);
+            if (e.dataTransfer.files) addFiles(e.dataTransfer.files);
+          }}
+          onClick={() => inputRef.current?.click()}
+          className="group flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-8 text-center transition"
+          style={{
+            borderColor: dragOver ? "var(--primary)" : "var(--border)",
+            background: dragOver
+              ? "color-mix(in oklab, var(--primary) 6%, var(--background))"
+              : "var(--muted)",
+          }}
+        >
+          <input
+            ref={inputRef}
+            type="file"
+            multiple
+            accept=".pdf,.docx"
+            className="hidden"
+            onChange={(e) => e.target.files && addFiles(e.target.files)}
+          />
+          <div
+            className="mb-3 flex h-12 w-12 items-center justify-center rounded-full transition group-hover:scale-110"
+            style={{ background: "var(--gradient-primary)", color: "white", boxShadow: "var(--shadow-glow)" }}
+          >
+            {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
+          </div>
+          <div className="text-sm font-semibold text-foreground">
+            {uploading ? "جاري رفع ومعالجة المستندات..." : "اسحب الملفات هنا أو انقر للرفع"}
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">PDF, DOCX · حتى 25 ميجابايت</div>
+        </div>
+
+        <div className="mt-5">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-xs font-semibold text-foreground">
+              المستندات المرفوعة <span className="text-muted-foreground">({docs.length})</span>
+            </div>
+          </div>
+          <div className="max-h-64 space-y-2 overflow-y-auto pe-1">
+            {docs.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-6 text-center text-xs text-muted-foreground">
+                لا توجد مستندات بعد — ابدأ برفع أول ملف.
+              </div>
+            ) : (
+              docs.map((doc) => (
+                <DocRow
+                  key={doc.id}
+                  doc={doc}
+                  onDelete={() => setDocs((d) => d.filter((x) => x.id !== doc.id))}
+                />
+              ))
+            )}
+          </div>
+        </div>
+
+        <button
+          onClick={() => setConfirmOpen(true)}
+          className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition hover:brightness-105"
+          style={{
+            borderColor: "color-mix(in oklab, var(--destructive) 30%, transparent)",
+            color: "var(--destructive)",
+            background: "color-mix(in oklab, var(--destructive) 6%, var(--background))",
+          }}
+        >
+          <Trash2 className="h-4 w-4" />
+          حذف جميع البيانات نهائياً
+        </button>
+      </Card>
+
+      {confirmOpen && (
+        <ConfirmDialog
+          onCancel={() => setConfirmOpen(false)}
+          onConfirm={() => {
+            setDocs([]);
+            setConfirmOpen(false);
+            StoreCtx.current?.pushAssistant(
+              "🧹 تم حذف جميع المستندات نهائياً من قاعدة المعرفة. يمكنك البدء من جديد في أي وقت.",
+              300,
+            );
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+function ConfirmDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in"
+      style={{ background: "color-mix(in oklab, black 45%, transparent)" }}
+      onClick={onCancel}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md rounded-2xl border bg-card p-6 shadow-xl"
+        style={{ boxShadow: "var(--shadow-lg)" }}
       >
-        <Trash2 className="h-4 w-4" />
-        حذف جميع البيانات نهائياً
-      </button>
-    </Card>
+        <div className="flex items-start gap-3">
+          <div
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
+            style={{
+              background: "color-mix(in oklab, var(--destructive) 12%, var(--background))",
+              color: "var(--destructive)",
+            }}
+          >
+            <AlertTriangle className="h-5 w-5" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-foreground">تأكيد حذف كافة البيانات</h3>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              سيتم حذف جميع المستندات المرفوعة نهائياً من قاعدة المعرفة، ولن يتمكن أطلس من الرجوع إليها.
+              هذا الإجراء لا يمكن التراجع عنه.
+            </p>
+          </div>
+        </div>
+        <div className="mt-6 flex items-center justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="rounded-lg border bg-card px-4 py-2 text-xs font-semibold text-foreground transition hover:bg-secondary"
+          >
+            إلغاء
+          </button>
+          <button
+            onClick={onConfirm}
+            className="rounded-lg px-4 py-2 text-xs font-semibold text-white transition hover:brightness-110"
+            style={{ background: "var(--destructive)" }}
+          >
+            نعم، احذف نهائياً
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -293,6 +487,40 @@ function DocRow({ doc, onDelete }: { doc: Doc; onDelete: () => void }) {
 
 /* ---------------- Section 2: Action Center ---------------- */
 function ActionCenter() {
+  const runContract = () => {
+    const store = StoreCtx.current;
+    if (!store) return;
+    store.setMode("default");
+    store.setMessages((m) => [
+      ...m,
+      { id: `u${Date.now()}`, role: "user", text: "استخرج الالتزامات من آخر عقد توريد." },
+    ]);
+    store.pushAssistant(
+      "📄 **تحليل عقد التوريد — 2025**\n\n**الأطراف:** شركة أطلس ↔ مورد الخدمات المتحدة\n\n**📅 المواعيد الحرجة:**\n• التسليم الأول: 15 فبراير 2025\n• الدفعة الأولى: 30 يوماً من التسليم\n• انتهاء العقد: 31 ديسمبر 2025\n\n**⚖️ البنود الجزائية:**\n• تأخير التسليم: 0.5% من قيمة العقد أسبوعياً (حد أقصى 10%)\n• الإخلال بالسرية: غرامة 250,000 ريال\n\n**🔑 الالتزامات الرئيسية:**\n• تقارير أداء ربع سنوية\n• صيانة وقائية شهرية\n• التأمين على المسؤولية بحد أدنى 5M ريال\n\n💡 **توصية أطلس:** فعّل تذكيراً قبل 5 أيام من كل استحقاق دفع.",
+      900,
+    );
+  };
+
+  const runResponse = () => {
+    const store = StoreCtx.current;
+    if (!store) return;
+    store.setMode("response");
+    store.pushAssistant(
+      "✍️ **وضع صياغة الردود مُفعّل**\n\nاكتب لي شكوى أو استفسار العميل في مربع الرسائل، وسأصيغ لك رداً احترافياً بالعربية الفصحى — مع لمسة إنسانية مبنية على سياسات شركتك.",
+      400,
+    );
+  };
+
+  const runOnboarding = () => {
+    const store = StoreCtx.current;
+    if (!store) return;
+    store.setMode("onboarding");
+    store.pushAssistant(
+      "🎓 **جلسة التأهيل التفاعلية بدأت**\n\nأهلاً بك في فريق أطلس! أنا مدرّبك الافتراضي. يمكنك سؤالي عن:\n\n1️⃣ سياسة الإجازات والحضور\n2️⃣ دورة الرواتب والبدلات\n3️⃣ قواعد السلوك المهني\n4️⃣ الأدوات الداخلية والوصول إليها\n\nابدأ بأي سؤال يخطر ببالك — أنا هنا للمساعدة.",
+      400,
+    );
+  };
+
   return (
     <Card>
       <CardHeader
@@ -302,6 +530,7 @@ function ActionCenter() {
       />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <ActionCard
+          onClick={runContract}
           icon={<FileCheck2 className="h-5 w-5" />}
           title="استخراج الالتزامات من العقود"
           desc="حلّل عقودك واستخرج المواعيد، البنود الجزائية، والتزاماتك الرئيسية تلقائياً."
@@ -309,6 +538,7 @@ function ActionCenter() {
           accent="oklch(0.55 0.16 255)"
         />
         <ActionCard
+          onClick={runResponse}
           icon={<MessageSquareQuote className="h-5 w-5" />}
           title="صياغة رد على عميل"
           desc="ردود احترافية بلمسة إنسانية، مبنية على سياساتك وسجل تعاملاتك السابقة."
@@ -316,6 +546,7 @@ function ActionCenter() {
           accent="oklch(0.6 0.15 195)"
         />
         <ActionCard
+          onClick={runOnboarding}
           icon={<GraduationCap className="h-5 w-5" />}
           title="تدريب موظف جديد"
           desc="جلسة تدريبية تفاعلية بالعربية تعتمد على أدلة الشركة وأسئلتها الشائعة."
@@ -334,10 +565,23 @@ function ActionCenter() {
 }
 
 function ActionCard({
-  icon, title, desc, badge, accent,
-}: { icon: React.ReactNode; title: string; desc: string; badge: string; accent: string }) {
+  icon,
+  title,
+  desc,
+  badge,
+  accent,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  desc: string;
+  badge: string;
+  accent: string;
+  onClick?: () => void;
+}) {
   return (
     <button
+      onClick={onClick}
       className="group relative flex h-full flex-col items-start rounded-xl border bg-card p-5 text-right transition hover:-translate-y-0.5"
       style={{ boxShadow: "var(--shadow-sm)", transition: "var(--transition-smooth)" }}
       onMouseEnter={(e) => (e.currentTarget.style.boxShadow = "var(--shadow-lg)")}
@@ -380,29 +624,39 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 /* ---------------- Section 3: Smart Chat ---------------- */
-function SmartChat() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "w",
-      role: "assistant",
-      text: "مرحباً سارة 👋 أنا أطلس، مساعدك الذكي. يمكنني تلخيص المستندات، صياغة الردود، ومقارنة الأرقام. جرّبي أحد الاقتراحات بالأسفل أو اكتبي طلبك.",
-    },
-  ]);
+function SmartChat({
+  messages,
+  typing,
+  mode,
+  setMode,
+  sendUser,
+}: {
+  messages: Message[];
+  typing: boolean;
+  mode: Mode;
+  setMode: (m: Mode) => void;
+  sendUser: (t: string) => void;
+}) {
   const [input, setInput] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  const send = (text: string) => {
-    const t = text.trim();
-    if (!t) return;
-    const userMsg: Message = { id: `u${Date.now()}`, role: "user", text: t };
-    const reply: Message = {
-      id: `a${Date.now()}`,
-      role: "assistant",
-      text:
-        "تمّ استلام طلبك. بناءً على مستنداتك في قاعدة المعرفة، إليك الملخص المقترح:\n\n• البند الأول: التزام تسليم شهري خلال 30 يوماً.\n• البند الثاني: غرامة تأخير 0.5% من قيمة العقد.\n• توصية أطلس: تفعيل تذكير قبل 5 أيام من الاستحقاق.",
-    };
-    setMessages((m) => [...m, userMsg, reply]);
-    setInput("");
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages, typing]);
+
+  const modeLabel: Record<Mode, string | null> = {
+    default: null,
+    contract: "وضع تحليل العقود",
+    response: "وضع صياغة الردود — اكتب شكوى/استفسار العميل",
+    onboarding: "وضع التأهيل التفاعلي — اسأل عن أي سياسة",
   };
+
+  const placeholder =
+    mode === "response"
+      ? "الصق شكوى العميل هنا وسأصيغ لك الرد..."
+      : mode === "onboarding"
+        ? "اسأل عن أي سياسة أو إجراء داخلي..."
+        : "اسأل أطلس عن أي شيء يخص شركتك...";
 
   return (
     <Card>
@@ -413,8 +667,10 @@ function SmartChat() {
         right={
           <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
             <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-60"
-                    style={{ background: "var(--success)" }} />
+              <span
+                className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-60"
+                style={{ background: "var(--success)" }}
+              />
               <span className="relative inline-flex h-2 w-2 rounded-full" style={{ background: "var(--success)" }} />
             </span>
             متصل الآن
@@ -422,18 +678,38 @@ function SmartChat() {
         }
       />
 
+      {modeLabel[mode] && (
+        <div
+          className="mb-3 flex items-center justify-between rounded-lg border px-3 py-2 text-[11px] font-semibold"
+          style={{
+            background: "color-mix(in oklab, var(--primary) 8%, var(--background))",
+            color: "var(--primary)",
+            borderColor: "color-mix(in oklab, var(--primary) 25%, transparent)",
+          }}
+        >
+          <span>● {modeLabel[mode]}</span>
+          <button onClick={() => setMode("default")} className="opacity-70 hover:opacity-100">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       <div
+        ref={scrollRef}
         className="mb-4 max-h-[420px] min-h-[280px] space-y-4 overflow-y-auto rounded-xl border p-4"
         style={{ background: "var(--muted)" }}
       >
-        {messages.map((m) => <ChatBubble key={m.id} msg={m} />)}
+        {messages.map((m) => (
+          <ChatBubble key={m.id} msg={m} />
+        ))}
+        {typing && <TypingBubble />}
       </div>
 
       <div className="mb-3 flex flex-wrap gap-2">
         {QUICK_PROMPTS.map((q) => (
           <button
             key={q}
-            onClick={() => send(q)}
+            onClick={() => sendUser(q)}
             className="rounded-full border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-primary hover:text-primary"
           >
             {q}
@@ -442,16 +718,23 @@ function SmartChat() {
       </div>
 
       <form
-        onSubmit={(e) => { e.preventDefault(); send(input); }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          sendUser(input);
+          setInput("");
+        }}
         className="flex items-center gap-2 rounded-2xl border bg-card p-2 shadow-sm focus-within:border-primary"
       >
-        <button type="button" className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary">
+        <button
+          type="button"
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary"
+        >
           <Paperclip className="h-4 w-4" />
         </button>
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="اسأل أطلس عن أي شيء يخص شركتك..."
+          placeholder={placeholder}
           className="flex-1 bg-transparent px-2 text-sm text-foreground outline-none placeholder:text-muted-foreground"
         />
         <button
@@ -464,6 +747,27 @@ function SmartChat() {
         </button>
       </form>
     </Card>
+  );
+}
+
+function TypingBubble() {
+  return (
+    <div className="flex items-start gap-3 animate-fade-in">
+      <div
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
+        style={{ background: "var(--gradient-primary)" }}
+      >
+        <Sparkles className="h-4 w-4" />
+      </div>
+      <div
+        className="flex items-center gap-1 rounded-2xl border px-4 py-3"
+        style={{ background: "var(--card)" }}
+      >
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.3s]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.15s]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground" />
+      </div>
+    </div>
   );
 }
 
@@ -480,16 +784,28 @@ function ChatBubble({ msg }: { msg: Message }) {
         {isUser ? <User className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
       </div>
       <div
-        className="max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-line"
+        className="max-w-[85%] whitespace-pre-line rounded-2xl px-4 py-3 text-sm leading-relaxed"
         style={
           isUser
             ? { background: "var(--primary)", color: "var(--primary-foreground)" }
             : { background: "var(--card)", color: "var(--foreground)", border: "1px solid var(--border)" }
         }
       >
-        {msg.text}
+        {renderRichArabic(msg.text)}
       </div>
     </div>
+  );
+}
+
+function renderRichArabic(text: string) {
+  // Very light markdown: **bold**
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((p, i) =>
+    p.startsWith("**") && p.endsWith("**") ? (
+      <strong key={i}>{p.slice(2, -2)}</strong>
+    ) : (
+      <span key={i}>{p}</span>
+    ),
   );
 }
 
@@ -515,9 +831,7 @@ function TrustBadge() {
           نضمن لك عدم استخدام بياناتك لتدريب نماذج الذكاء الاصطناعي نهائياً وفق اتفاقية الخصوصية.
         </p>
       </div>
-      <div
-        className="hidden gap-4 text-[11px] font-medium opacity-90 sm:flex"
-      >
+      <div className="hidden gap-4 text-[11px] font-medium opacity-90 sm:flex">
         <span>ISO 27001</span>
         <span>·</span>
         <span>GDPR</span>
@@ -531,18 +845,23 @@ function TrustBadge() {
 /* ---------------- Primitives ---------------- */
 function Card({ children }: { children: React.ReactNode }) {
   return (
-    <section
-      className="h-full rounded-2xl border bg-card p-5 sm:p-6"
-      style={{ boxShadow: "var(--shadow-md)" }}
-    >
+    <section className="h-full rounded-2xl border bg-card p-5 sm:p-6" style={{ boxShadow: "var(--shadow-md)" }}>
       {children}
     </section>
   );
 }
 
 function CardHeader({
-  icon, title, subtitle, right,
-}: { icon: React.ReactNode; title: string; subtitle?: string; right?: React.ReactNode }) {
+  icon,
+  title,
+  subtitle,
+  right,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle?: string;
+  right?: React.ReactNode;
+}) {
   return (
     <div className="mb-5 flex items-start justify-between gap-3">
       <div className="flex items-start gap-3">
