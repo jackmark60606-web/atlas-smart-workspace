@@ -160,13 +160,25 @@
   --sidebar-ring: oklch(0.551 0.027 264.364);
 }
 
+@theme inline {
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+}
+
 @layer base {
   * {
     border-color: var(--color-border);
   }
 
+  html {
+    font-family: var(--font-arabic);
+  }
+
   body {
-    background-color: var(--color-background);
+    background: var(--gradient-soft);
     color: var(--color-foreground);
+    font-family: var(--font-arabic);
+    min-height: 100vh;
   }
 }
+
